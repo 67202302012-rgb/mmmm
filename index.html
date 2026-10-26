@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเฝ้ารระวังและสารสนเทศระบาดวิทยา COVID-19 (Esri ArcGIS GIS Dashboard)</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        esri: {
+                            blue: '#007ac2',
+                            darkBlue: '#005e95',
+                            darkBg: '#0f172a',
+                            panelBg: '#1e293b'
+                        },
+                        epi: {
+                            danger: '#ef4444',
+                            warning: '#f59e0b',
+                            moderate: '#eab308',
+                            success: '#10b981',
+                            info: '#3b82f6'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Sarabun', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Google Fonts: Inter & Sarabun -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SheetJS CDN (XLSX / CSV parsing) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <style>
+        body {
+            font-family: 'Inter', 'Sarabun', sans-serif;
+        }
+        #map {
+            min-height: 520px;
+            width: 100%;
+            border-radius: 0.75rem;
+            z-index: 10;
+        }
+        /* Custom Leaflet Styling for Esri Map Layers */
+        .leaflet-container {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #0f172a;
+        }
+        .dark .leaflet-popup-content-wrapper, .dark .leaflet-popup-tip {
+            background-color: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6);
+        }
+        .leaflet-popup-content {
+            margin: 14px 18px;
+            line-height: 1.6;
+        }
+        /* Pulsing indicator for live updates */
+        .live-pulse {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen transition-colors duration-200 flex flex-col">
+
+    <!-- Header Navigation -->
+    <header class="sticky top-0 z-50 bg-white/95 dark:bg-slate-800/95 backdrop-blur border-b border-slate-200 dark:border-slate-700 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Title & Public Health Identity -->
+                <div class="flex items-center space-x-3">
+                    <div class="p-2.5 bg-blue-600/10 text-blue-600 dark:text-sky-400 rounded-xl border border-blue-500/20">
+                        <i class="fa-solid fa-map-location-dot text-2xl"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h1 class="font-bold text-lg md:text-xl text-slate-900 dark:text-white leading-tight">
+                                ระบบเฝ้าระวังทางระบาดวิทยา COVID-19
+                            </h1>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">
+                                <span class="w-2 h-2 mr-1.5 rounded-full bg-emerald-500 live-pulse"></span>
+                                Live Feed
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">ศูนย์ปฏิบัติการตอบโต้ภาวะฉุกเฉินทางสาธารณสุข (Esri ArcGIS Tile Map Integration)</p>
+                    </div>
+                </div>
+
+                <!-- Action Toolbar -->
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <!-- Live Sync Toggle -->
+                    <button id="toggleRealtimeBtn" title="เปิด/ปิด การจำลองรับข้อมูลเรียลไทม์" class="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 transition shadow-xs">
+                        <i class="fa-solid fa-arrows-rotate text-emerald-500 animate-spin" id="syncIcon"></i>
+                        <span id="syncStatusText" class="hidden sm:inline">Auto-Sync ON</span>
+                    </button>
+
+                    <!-- Excel/CSV File Upload -->
+                    <label class="cursor-pointer flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm">
+                        <i class="fa-solid fa-file-excel"></i>
+                        <span class="hidden sm:inline">นำเข้า Excel/CSV</span>
+                        <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="hidden">
+                    </label>
+
+                    <!-- Reset Bounds Button -->
+                    <button onclick="fitMapBounds()" title="ซูมพอดีประเทศไทย" class="p-2 rounded-lg text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+                        <i class="fa-solid fa-compress"></i>
+                    </button>
+
+                    <!-- Dark/Light Theme Switcher -->
+                    <button id="themeToggleBtn" class="p-2 rounded-lg text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition" title="เปลี่ยนธีม">
+                        <i class="fa-solid fa-moon dark:hidden"></i>
+                        <i class="fa-solid fa-sun hidden dark:block"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Body -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Info Notification Bar -->
+        <div class="bg-blue-50 dark:bg-slate-800/80 border border-blue-200 dark:border-slate-700 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-sm">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-globe text-blue-600 dark:text-sky-400 text-xl"></i>
+                <div>
+                    <span class="font-semibold text-sm text-blue-900 dark:text-sky-200"> Esri ArcGIS Map Services Integration</span>
+                    <p class="text-xs text-blue-700 dark:text-slate-400">ระบบใช้ไทล์แผนที่ Esri World Imagery (ดาวเทียมละเอียดสูง), Esri Topo และ Esri StreetMap | อัปเดตล่าสุด: <span id="lastUpdatedText" class="font-semibold">กำลังโหลด...</span></p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2 self-end md:self-auto">
+                <button onclick="triggerManualRefresh()" class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition shadow-xs">
+                    <i class="fa-solid fa-rotate-right mr-1"></i>รีเฟรชข้อมูล
+                </button>
+                <button onclick="downloadSampleTemplate()" class="text-xs px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 font-medium rounded-lg transition">
+                    <i class="fa-solid fa-download mr-1"></i>ตัวอย่าง Excel
+                </button>
+            </div>
+        </div>
+
+        <!-- Metric KPI Cards Grid (5 Indicators) -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <!-- Total Cases -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    <span>ผู้ติดเชื้อสะสม</span>
+                    <i class="fa-solid fa-hospital-user text-red-500"></i>
+                </div>
+                <div class="mt-2">
+                    <div id="kpiTotalCases" class="text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white">0</div>
+                    <div class="flex items-center text-xs text-red-500 mt-1">
+                        <i class="fa-solid fa-arrow-trend-up mr-1"></i>
+                        <span id="kpiNewCases">+0 รายวันนี้</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Cases -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    <span>กำลังรักษา (Active)</span>
+                    <i class="fa-solid fa-bed-pulse text-amber-500"></i>
+                </div>
+                <div class="mt-2">
+                    <div id="kpiActiveCases" class="text-2xl lg:text-3xl font-bold text-amber-600 dark:text-amber-400">0</div>
+                    <div class="flex items-center text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span id="kpiActivePercent">0% ของทั้งหมด</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recovered -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    <span>หายป่วยแล้ว</span>
+                    <i class="fa-solid fa-heart-pulse text-emerald-500"></i>
+                </div>
+                <div class="mt-2">
+                    <div id="kpiRecovered" class="text-2xl lg:text-3xl font-bold text-emerald-600 dark:text-emerald-400">0</div>
+                    <div class="flex items-center text-xs text-emerald-500 mt-1">
+                        <i class="fa-solid fa-check mr-1"></i>
+                        <span id="kpiRecoveryRate">0% Recovery Rate</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Deaths -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    <span>เสียชีวิต (Deaths)</span>
+                    <i class="fa-solid fa-skull-crossbones text-slate-400"></i>
+                </div>
+                <div class="mt-2">
+                    <div id="kpiDeaths" class="text-2xl lg:text-3xl font-bold text-slate-700 dark:text-slate-300">0</div>
+                    <div class="flex items-center text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span>CFR: </span>
+                        <span id="kpiFatalityRate" class="font-semibold ml-1">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Critical Cases -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    <span>อาการหนัก/วิกฤต (ICU)</span>
+                    <i class="fa-solid fa-truck-medical text-purple-500"></i>
+                </div>
+                <div class="mt-2">
+                    <div id="kpiCritical" class="text-2xl lg:text-3xl font-bold text-purple-600 dark:text-purple-400">0</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span>ต้องการท่อช่วยหายใจ</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Incidence Rate per 100k -->
+            <div class="col-span-2 sm:col-span-1 bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                    <span>Incidence / 100k</span>
+                    <i class="fa-solid fa-chart-line text-blue-500"></i>
+                </div>
+                <div class="mt-2">
+                    <div id="kpiIncidence" class="text-2xl lg:text-3xl font-bold text-blue-600 dark:text-blue-400">0.0</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        <span>อัตราป่วยต่อแสนประชากร</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main GIS Map & Trend Charts Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- GIS Map Panel (Esri ArcGIS Powered) -->
+            <div class="lg:col-span-7 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
+                <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-earth-asia text-blue-500"></i>
+                        <h2 class="font-bold text-slate-900 dark:text-white text-sm md:text-base">แผนที่ทางระบาดวิทยา (Esri ArcGIS GIS Service)</h2>
+                    </div>
+
+                    <!-- Esri Basemap Layer Switcher Buttons -->
+                    <div class="flex items-center space-x-1 bg-slate-100 dark:bg-slate-700 p-1 rounded-lg text-xs">
+                        <button onclick="switchEsriLayer('satellite')" id="btnEsriSat" class="px-2.5 py-1 rounded-md font-medium transition">Esri Imagery</button>
+                        <button onclick="switchEsriLayer('topo')" id="btnEsriTopo" class="px-2.5 py-1 rounded-md font-medium transition">Esri Topo</button>
+                        <button onclick="switchEsriLayer('street')" id="btnEsriStreet" class="px-2.5 py-1 rounded-md font-medium transition">Esri Street</button>
+                    </div>
+                </div>
+
+                <!-- Leaflet Container -->
+                <div class="relative flex-1 p-2">
+                    <div id="map"></div>
+                    
+                    <!-- Floating Map Legend Overlay -->
+                    <div class="absolute bottom-6 right-6 z-[500] bg-white/90 dark:bg-slate-800/95 backdrop-blur p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-xl space-y-2">
+                        <div class="font-bold text-slate-800 dark:text-slate-200 mb-1 border-b border-slate-200 dark:border-slate-700 pb-1">ระดับความเสี่ยง (Active Cases)</div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-red-500 inline-block shadow-xs"></span>
+                            <span>ระบาดรุนแรง (&gt; 1,000 ราย)</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-amber-500 inline-block shadow-xs"></span>
+                            <span>ระบาดปานกลาง (400 - 1,000 ราย)</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-yellow-500 inline-block shadow-xs"></span>
+                            <span>เฝ้าระวัง (100 - 400 ราย)</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-emerald-500 inline-block shadow-xs"></span>
+                            <span>ความเสี่ยงต่ำ (&lt; 100 ราย)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Epidemic Analytics Charts (Right Column) -->
+            <div class="lg:col-span-5 space-y-6 flex flex-col justify-between">
+                
+                <!-- Epi Curve Chart Panel -->
+                <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex-1 flex flex-col justify-between">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center space-x-2">
+                            <i class="fa-solid fa-chart-area text-sky-500"></i>
+                            <h3 class="font-bold text-slate-900 dark:text-white text-sm">แนวโน้มการระบาด (Epidemic Curve)</h3>
+                        </div>
+                        <select id="chartTimelineSelect" onchange="updateCharts()" class="text-xs border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700 rounded-lg px-2.5 py-1">
+                            <option value="14">14 วันล่าสุด</option>
+                            <option value="30" selected>30 วันล่าสุด</option>
+                            <option value="90">90 วันล่าสุด</option>
+                        </select>
+                    </div>
+                    <div class="relative w-full h-52">
+                        <canvas id="epiCurveChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Severity & Risk Breakdown Panel -->
+                <div class="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex-1 flex flex-col justify-between">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center space-x-2">
+                            <i class="fa-solid fa-chart-pie text-indigo-500"></i>
+                            <h3 class="font-bold text-slate-900 dark:text-white text-sm">การจำแนกอาการทางคลินิก (Clinical Severity)</h3>
+                        </div>
+                        <span class="text-xs text-slate-400">ผู้ป่วยในระบบ</span>
+                    </div>
+                    <div class="relative w-full h-44 flex items-center justify-center">
+                        <canvas id="severityPieChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Regional Table & Filter Section -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <!-- Table Header Toolbar -->
+            <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-table-list text-emerald-500"></i>
+                    <h2 class="font-bold text-slate-900 dark:text-white text-base">รายงานสรุปข้อมูลจำแนกรายเขตสุขภาพ/จังหวัด</h2>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <!-- Search Input Filter -->
+                    <div class="relative min-w-[220px]">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="ค้นหาจังหวัด / เขตพื้นที่..." class="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <!-- Risk Level Dropdown Filter -->
+                    <select id="riskFilter" onchange="filterTable()" class="text-xs bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-1.5 focus:outline-none">
+                        <option value="ALL">ทุกระดับความเสี่ยง</option>
+                        <option value="HIGH">ระบาดรุนแรง (Red)</option>
+                        <option value="MEDIUM">ระบาดปานกลาง (Orange)</option>
+                        <option value="MONITOR">เฝ้าระวัง (Yellow)</option>
+                        <option value="LOW">ความเสี่ยงต่ำ (Green)</option>
+                    </select>
+
+                    <!-- Export Table CSV Button -->
+                    <button onclick="exportTableToCSV()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition flex items-center space-x-1.5 shadow-xs">
+                        <i class="fa-solid fa-file-csv"></i>
+                        <span>ส่งออก CSV</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Table Responsive Container -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 text-xs font-semibold border-b border-slate-200 dark:border-slate-700">
+                            <th class="p-3">จังหวัด / พื้นที่</th>
+                            <th class="p-3 text-right">ผู้ติดเชื้อสะสม</th>
+                            <th class="p-3 text-right">รายใหม่วันนี้</th>
+                            <th class="p-3 text-right">กำลังรักษา (Active)</th>
+                            <th class="p-3 text-right">หายป่วยแล้ว</th>
+                            <th class="p-3 text-right">เสียชีวิต</th>
+                            <th class="p-3 text-right">เคสวิกฤต (ICU)</th>
+                            <th class="p-3 text-right">Incidence / 100k</th>
+                            <th class="p-3 text-center">ระดับความเสี่ยง</th>
+                        </tr>
+                    </thead>
+                    <tbody id="areaTableBody" class="divide-y divide-slate-100 dark:divide-slate-700 text-xs text-slate-700 dark:text-slate-300">
+                        <!-- Table rows populated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 py-4 mt-8">
+        <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 dark:text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div>
+                ออกแบบสำหรับนักวิชาการสาธารณสุข & Design for GitHub Pages Deployment
+            </div>
+            <div>
+                <i class="fa-solid fa-shield-halved text-blue-500 mr-1"></i> Data Standard: Department of Disease Control ISO Format
+            </div>
+        </div>
+    </footer>
+
+    <!-- Notification Toast Modal -->
+    <div id="toast" class="fixed bottom-5 right-5 z-[1000] hidden bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-3 rounded-xl shadow-2xl text-xs flex items-center space-x-2 border border-slate-700">
+        <i class="fa-solid fa-circle-check text-emerald-400 dark:text-emerald-600"></i>
+        <span id="toastMessage">แจ้งเตือนสำเร็จ</span>
+    </div>
+
+    <!-- Application JavaScript Logic -->
+    <script>
+        // ==========================================
+        // 1. INITIAL DATA & STATE MANAGEMENT
+        // ==========================================
+        
+        // Realistic Thailand COVID-19 Dataset across Health Districts
+        let rawData = [
+            { id: 1, name: "กรุงเทพมหานคร", lat: 13.7563, lng: 100.5018, cases: 28450, newCases: 215, active: 2450, recovered: 25600, deaths: 400, critical: 180, pop: 5600000 },
+            { id: 2, name: "นนทบุรี", lat: 13.8621, lng: 100.5144, cases: 11200, newCases: 88, active: 920, recovered: 10130, deaths: 150, critical: 45, pop: 1250000 },
+            { id: 3, name: "เลย", lat: 17.4860, lng: 101.7223, cases: 3100, newCases: 19, active: 230, recovered: 2830, deaths: 40, critical: 12, pop: 640000 },
+            { id: 4, name: "ขอนแก่น", lat: 16.4322, lng: 102.8236, cases: 8900, newCases: 64, active: 780, recovered: 8020, deaths: 100, critical: 32, pop: 1800000 },
+            { id: 5, name: "อุดรธานี", lat: 17.4138, lng: 102.7872, cases: 7400, newCases: 52, active: 610, recovered: 6710, deaths: 80, critical: 25, pop: 1580000 },
+            { id: 6, name: "เชียงใหม่", lat: 18.7883, lng: 98.9853, cases: 14200, newCases: 110, active: 1350, recovered: 12670, deaths: 180, critical: 60, pop: 1780000 },
+            { id: 7, name: "ชลบุรี", lat: 13.3611, lng: 100.9847, cases: 19500, newCases: 145, active: 1680, recovered: 17570, deaths: 250, critical: 85, pop: 1550000 },
+            { id: 8, name: "ภูเก็ต", lat: 7.8804, lng: 98.3923, cases: 6200, newCases: 38, active: 410, recovered: 5720, deaths: 70, pop: 18, pop: 415000 },
+            { id: 9, name: "สงขลา", lat: 7.1988, lng: 100.5951, cases: 9800, newCases: 76, active: 840, recovered: 8840, deaths: 120, critical: 38, pop: 1430000 },
+            { id: 10, name: "นครราชสีมา", lat: 14.9799, lng: 102.0978, cases: 12400, newCases: 94, active: 1120, recovered: 11130, deaths: 150, critical: 50, pop: 2630000 },
+            { id: 11, name: "สุราษฎร์ธานี", lat: 9.1382, lng: 99.3331, cases: 5900, newCases: 42, active: 480, recovered: 5360, deaths: 60, critical: 20, pop: 1060000 },
+            { id: 12, name: "อุบลราชธานี", lat: 15.2287, lng: 104.8564, cases: 8100, newCases: 58, active: 690, recovered: 7320, deaths: 90, critical: 28, pop: 1870000 }
+        ];
+
+        let map = null;
+        let mapMarkersLayer = L.layerGroup();
+        let esriTileLayers = {};
+        let activeEsriLayerName = 'satellite';
+        let realtimeInterval = null;
+        let isRealtimeActive = true;
+
+        let epiChartInstance = null;
+        let severityChartInstance = null;
+
+        // ==========================================
+        // 2. ESRI ARCGIS TILE SERVICES DEFINITION
+        // ==========================================
+        const ESRI_ATTRIBUTION = 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community';
+
+        function initMap() {
+            // Initialize Leaflet Map centered over Thailand
+            map = L.map('map', {
+                center: [13.7563, 100.5018],
+                zoom: 6,
+                zoomControl: true
+            });
+
+            // 1. Esri World Imagery (Satellite) Layer with Labels Overlay
+            const esriImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: ESRI_ATTRIBUTION,
+                maxZoom: 18
+            });
+
+            const esriLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 18
+            });
+
+            esriTileLayers['satellite'] = L.layerGroup([esriImagery, esriLabels]);
+
+            // 2. Esri World Topographic Map Layer
+            esriTileLayers['topo'] = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+                attribution: ESRI_ATTRIBUTION,
+                maxZoom: 18
+            });
+
+            // 3. Esri World Street Map Layer
+            esriTileLayers['street'] = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+                attribution: ESRI_ATTRIBUTION,
+                maxZoom: 18
+            });
+
+            // Set primary basemap to Esri World Imagery
+            esriTileLayers['satellite'].addTo(map);
+            updateEsriButtonUI('satellite');
+
+            mapMarkersLayer.addTo(map);
+            renderMapMarkers();
+            fitMapBounds();
+        }
+
+        function switchEsriLayer(layerKey) {
+            if (activeEsriLayerName === layerKey) return;
+
+            // Remove current layer
+            map.removeLayer(esriTileLayers[activeEsriLayerName]);
+            
+            // Add new selected Esri layer
+            esriTileLayers[layerKey].addTo(map);
+            activeEsriLayerName = layerKey;
+
+            updateEsriButtonUI(layerKey);
+        }
+
+        function updateEsriButtonUI(activeKey) {
+            const btnSat = document.getElementById('btnEsriSat');
+            const btnTopo = document.getElementById('btnEsriTopo');
+            const btnStreet = document.getElementById('btnEsriStreet');
+
+            [btnSat, btnTopo, btnStreet].forEach(btn => {
+                if (btn) {
+                    btn.className = "px-2.5 py-1 rounded-md font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600";
+                }
+            });
+
+            if (activeKey === 'satellite' && btnSat) {
+                btnSat.className = "px-2.5 py-1 rounded-md font-medium transition bg-blue-600 text-white shadow-xs";
+            } else if (activeKey === 'topo' && btnTopo) {
+                btnTopo.className = "px-2.5 py-1 rounded-md font-medium transition bg-blue-600 text-white shadow-xs";
+            } else if (activeKey === 'street' && btnStreet) {
+                btnStreet.className = "px-2.5 py-1 rounded-md font-medium transition bg-blue-600 text-white shadow-xs";
+            }
+        }
+
+        function fitMapBounds() {
+            if (!rawData || rawData.length === 0) return;
+            const bounds = L.latLngBounds(rawData.map(d => [d.lat, d.lng]));
+            map.fitBounds(bounds, { padding: [30, 30] });
+        }
+
+        function renderMapMarkers() {
+            mapMarkersLayer.clearLayers();
+
+            rawData.forEach(item => {
+                // Scaled circle radius relative to active cases
+                const radius = Math.max(12, Math.sqrt(item.active) * 2.5);
+                
+                // Epidemiological Risk Color Classification
+                let color = '#10b981'; // Green (Low)
+                let riskLabel = 'ความเสี่ยงต่ำ';
+
+                if (item.active >= 1000) {
+                    color = '#ef4444'; // Red (High)
+                    riskLabel = 'พื้นที่ระบาดรุนแรง';
+                } else if (item.active >= 400) {
+                    color = '#f59e0b'; // Orange (Medium)
+                    riskLabel = 'พื้นที่ระบาดปานกลาง';
+                } else if (item.active >= 100) {
+                    color = '#eab308'; // Yellow (Monitor)
+                    riskLabel = 'พื้นที่เฝ้าระวัง';
+                }
+
+                const circle = L.circleMarker([item.lat, item.lng], {
+                    radius: radius,
+                    fillColor: color,
+                    color: color,
+                    weight: 2,
+                    opacity: 0.85,
+                    fillOpacity: 0.5
+                });
+
+                // Detailed Epidemiological Popup
+                const popupContent = `
+                    <div class="text-xs">
+                        <div class="font-bold text-sm mb-1.5 text-slate-900 dark:text-white flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-1">
+                            <span>${item.name}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded text-white font-medium" style="background-color: ${color}">
+                                ${riskLabel}
+                            </span>
+                        </div>
+                        <div class="space-y-1 text-slate-600 dark:text-slate-300">
+                            <div class="flex justify-between"><span>ผู้ติดเชื้อสะสม:</span> <b class="text-slate-900 dark:text-white">${item.cases.toLocaleString()} ราย</b></div>
+                            <div class="flex justify-between"><span>ผู้ป่วยรายใหม่:</span> <b class="text-red-500">+${item.newCases.toLocaleString()} ราย</b></div>
+                            <div class="flex justify-between"><span>กำลังรักษา (Active):</span> <b class="text-amber-500">${item.active.toLocaleString()} ราย</b></div>
+                            <div class="flex justify-between"><span>หายแล้ว:</span> <b class="text-emerald-500">${item.recovered.toLocaleString()} ราย</b></div>
+                            <div class="flex justify-between"><span>เสียชีวิต:</span> <b class="text-slate-400">${item.deaths.toLocaleString()} ราย</b></div>
+                            <div class="flex justify-between"><span>เคสวิกฤต (ICU):</span> <b class="text-purple-400">${item.critical.toLocaleString()} ราย</b></div>
+                            <div class="pt-1.5 border-t border-slate-200 dark:border-slate-700 flex justify-between font-semibold">
+                                <span>Incidence Rate:</span>
+                                <span class="text-blue-500">${((item.cases / item.pop) * 100000).toFixed(1)} / 100k</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                circle.bindPopup(popupContent);
+                mapMarkersLayer.addLayer(circle);
+            });
+        }
+
+        // ==========================================
+        // 3. KPI METRICS & TABLE UPDATES
+        // ==========================================
+        function updateDashboardMetrics() {
+            const totalCases = rawData.reduce((sum, d) => sum + d.cases, 0);
+            const totalNew = rawData.reduce((sum, d) => sum + d.newCases, 0);
+            const totalActive = rawData.reduce((sum, d) => sum + d.active, 0);
+            const totalRecovered = rawData.reduce((sum, d) => sum + d.recovered, 0);
+            const totalDeaths = rawData.reduce((sum, d) => sum + d.deaths, 0);
+            const totalCritical = rawData.reduce((sum, d) => sum + d.critical, 0);
+            const totalPopulation = rawData.reduce((sum, d) => sum + d.pop, 0);
+
+            const activePercent = totalCases > 0 ? ((totalActive / totalCases) * 100).toFixed(1) : 0;
+            const recoveryRate = totalCases > 0 ? ((totalRecovered / totalCases) * 100).toFixed(1) : 0;
+            const fatalityRate = totalCases > 0 ? ((totalDeaths / totalCases) * 100).toFixed(2) : 0;
+            const incidenceRate = totalPopulation > 0 ? ((totalCases / totalPopulation) * 100000).toFixed(1) : 0;
+
+            // DOM Updates
+            document.getElementById('kpiTotalCases').innerText = totalCases.toLocaleString();
+            document.getElementById('kpiNewCases').innerText = `+${totalNew.toLocaleString()} รายวันนี้`;
+            document.getElementById('kpiActiveCases').innerText = totalActive.toLocaleString();
+            document.getElementById('kpiActivePercent').innerText = `${activePercent}% ของทั้งหมด`;
+            document.getElementById('kpiRecovered').innerText = totalRecovered.toLocaleString();
+            document.getElementById('kpiRecoveryRate').innerText = `${recoveryRate}% Recovery Rate`;
+            document.getElementById('kpiDeaths').innerText = totalDeaths.toLocaleString();
+            document.getElementById('kpiFatalityRate').innerText = `${fatalityRate}%`;
+            document.getElementById('kpiCritical').innerText = totalCritical.toLocaleString();
+            document.getElementById('kpiIncidence').innerText = incidenceRate;
+
+            document.getElementById('lastUpdatedText').innerText = new Date().toLocaleTimeString('th-TH', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            }) + ' น.';
+
+            renderTable();
+            renderMapMarkers();
+            updateSeverityChart(totalActive, totalCritical);
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('areaTableBody');
+            tbody.innerHTML = '';
+
+            const searchValue = document.getElementById('searchInput').value.toLowerCase();
+            const riskValue = document.getElementById('riskFilter').value;
+
+            rawData.forEach(item => {
+                const incidence = ((item.cases / item.pop) * 100000).toFixed(1);
+                
+                let riskCategory = 'LOW';
+                let riskBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300">ความเสี่ยงต่ำ</span>';
+                
+                if (item.active >= 1000) {
+                    riskCategory = 'HIGH';
+                    riskBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300">ระบาดรุนแรง</span>';
+                } else if (item.active >= 400) {
+                    riskCategory = 'MEDIUM';
+                    riskBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300">ระบาดปานกลาง</span>';
+                } else if (item.active >= 100) {
+                    riskCategory = 'MONITOR';
+                    riskBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/60 dark:text-yellow-300">เฝ้าระวัง</span>';
+                }
+
+                // Filter checks
+                const matchesSearch = item.name.toLowerCase().includes(searchValue);
+                const matchesRisk = riskValue === 'ALL' || riskValue === riskCategory;
+
+                if (matchesSearch && matchesRisk) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-700/40 transition cursor-pointer';
+                    tr.onclick = () => {
+                        map.flyTo([item.lat, item.lng], 9);
+                    };
+                    tr.innerHTML = `
+                        <td class="p-3 font-semibold text-slate-900 dark:text-white">${item.name}</td>
+                        <td class="p-3 text-right font-medium">${item.cases.toLocaleString()}</td>
+                        <td class="p-3 text-right font-medium text-red-500">+${item.newCases.toLocaleString()}</td>
+                        <td class="p-3 text-right font-medium text-amber-500">${item.active.toLocaleString()}</td>
+                        <td class="p-3 text-right font-medium text-emerald-500">${item.recovered.toLocaleString()}</td>
+                        <td class="p-3 text-right font-medium text-slate-400">${item.deaths.toLocaleString()}</td>
+                        <td class="p-3 text-right font-medium text-purple-400">${item.critical.toLocaleString()}</td>
+                        <td class="p-3 text-right font-semibold text-blue-600 dark:text-sky-400">${incidence}</td>
+                        <td class="p-3 text-center">${riskBadge}</td>
+                    `;
+                    tbody.appendChild(tr);
+                }
+            });
+        }
+
+        function filterTable() {
+            renderTable();
+        }
+
+        // ==========================================
+        // 4. CHART.JS EPIDEMIC ANALYTICS
+        // ==========================================
+        function initCharts() {
+            // 1. Epi Curve Line Chart
+            const ctxEpi = document.getElementById('epiCurveChart').getContext('2d');
+            
+            const labels = Array.from({length: 30}, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - (29 - i));
+                return d.toLocaleDateString('th-TH', { month: 'short', day: 'numeric' });
+            });
+
+            const dailyData = [320, 350, 340, 390, 410, 450, 430, 480, 520, 510, 560, 610, 650, 630, 680, 720, 750, 790, 770, 820, 860, 910, 890, 940, 980, 1020, 1050, 1010, 1070, 1120];
+
+            epiChartInstance = new Chart(ctxEpi, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ผู้ติดเชื้อรายวัน (Daily Cases)',
+                        data: dailyData,
+                        borderColor: '#007ac2',
+                        backgroundColor: 'rgba(0, 122, 194, 0.15)',
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 2,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // 2. Clinical Severity Doughnut Chart
+            const ctxPie = document.getElementById('severityPieChart').getContext('2d');
+            severityChartInstance = new Chart(ctxPie, {
+                type: 'doughnut',
+                data: {
+                    labels: ['สีเขียว (ไม่แสดงอาการ/เล็กน้อย)', 'สีเหลือง (อาการปานกลาง)', 'สีแดง (อาการหนัก/ICU)'],
+                    datasets: [{
+                        data: [75, 18, 7],
+                        backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#94a3b8', font: { size: 10 } }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        function updateCharts() {
+            if (!epiChartInstance) return;
+
+            const days = parseInt(document.getElementById('chartTimelineSelect').value);
+            const labels = Array.from({length: days}, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - ((days - 1) - i));
+                return d.toLocaleDateString('th-TH', { month: 'short', day: 'numeric' });
+            });
+
+            let base = 400;
+            const newData = labels.map(() => {
+                base += Math.floor(Math.random() * 40) - 15;
+                return Math.max(100, base);
+            });
+
+            epiChartInstance.data.labels = labels;
+            epiChartInstance.data.datasets[0].data = newData;
+            epiChartInstance.update();
+        }
+
+        function updateSeverityChart(totalActive, totalCritical) {
+            if (!severityChartInstance) return;
+            const severe = totalCritical;
+            const moderate = Math.round(totalActive * 0.20);
+            const mild = Math.max(0, totalActive - moderate - severe);
+
+            severityChartInstance.data.datasets[0].data = [mild, moderate, severe];
+            severityChartInstance.update();
+        }
+
+        // ==========================================
+        // 5. REAL-TIME STREAM SIMULATION & EXCEL IMPORT
+        // ==========================================
+        function toggleRealtime() {
+            isRealtimeActive = !isRealtimeActive;
+            const icon = document.getElementById('syncIcon');
+            const statusText = document.getElementById('syncStatusText');
+
+            if (isRealtimeActive) {
+                icon.classList.add('animate-spin');
+                statusText.innerText = 'Auto-Sync ON';
+                startRealtimeSimulation();
+                showToast('เปิดระบบจำลองรับข้อมูลเรียลไทม์แล้ว');
+            } else {
+                icon.classList.remove('animate-spin');
+                statusText.innerText = 'Auto-Sync OFF';
+                clearInterval(realtimeInterval);
+                showToast('หยุดระบบจำลองรับข้อมูลเรียลไทม์แล้ว');
+            }
+        }
+
+        function startRealtimeSimulation() {
+            clearInterval(realtimeInterval);
+            realtimeInterval = setInterval(() => {
+                if (!isRealtimeActive) return;
+
+                const randomIndex = Math.floor(Math.random() * rawData.length);
+                const addedCases = Math.floor(Math.random() * 6) + 1;
+
+                rawData[randomIndex].cases += addedCases;
+                rawData[randomIndex].newCases += addedCases;
+                
+                if (Math.random() > 0.45) {
+                    rawData[randomIndex].active += addedCases;
+                } else {
+                    rawData[randomIndex].recovered += addedCases;
+                }
+
+                updateDashboardMetrics();
+            }, 3500);
+        }
+
+        function triggerManualRefresh() {
+            rawData.forEach(item => {
+                const add = Math.floor(Math.random() * 4);
+                item.cases += add;
+                item.newCases += add;
+                item.active += add;
+            });
+            updateDashboardMetrics();
+            showToast('อัปเดตข้อมูลล่าสุดเรียบร้อยแล้ว');
+        }
+
+        // SheetJS Upload Reader Integration
+        document.getElementById('excelFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
+
+                    if (json.length > 0) {
+                        rawData = json.map((row, index) => ({
+                            id: index + 1,
+                            name: row['จังหวัด'] || row['Area'] || row['name'] || `พื้นที่ ${index + 1}`,
+                            lat: parseFloat(row['Latitude'] || row['lat'] || (13.75 + (Math.random() * 5 - 2.5))),
+                            lng: parseFloat(row['Longitude'] || row['lng'] || (100.5 + (Math.random() * 5 - 2.5))),
+                            cases: parseInt(row['Cases'] || row['cases'] || row['ผู้ติดเชื้อสะสม'] || 100),
+                            newCases: parseInt(row['NewCases'] || row['newCases'] || row['รายใหม่'] || 5),
+                            active: parseInt(row['Active'] || row['active'] || row['กำลังรักษา'] || 20),
+                            recovered: parseInt(row['Recovered'] || row['recovered'] || row['หายแล้ว'] || 75),
+                            deaths: parseInt(row['Deaths'] || row['deaths'] || row['เสียชีวิต'] || 5),
+                            critical: parseInt(row['Critical'] || row['critical'] || row['วิกฤต'] || 2),
+                            pop: parseInt(row['Population'] || row['pop'] || row['ประชากร'] || 500000)
+                        }));
+
+                        updateDashboardMetrics();
+                        fitMapBounds();
+                        showToast(`นำเข้าข้อมูลสำเร็จ (${rawData.length} รายการ)`);
+                    } else {
+                        showToast('ไม่พบข้อมูลในไฟล์ที่อัปโหลด');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('รูปแบบไฟล์ไม่ถูกต้อง กรุณาใช้ไฟล์ Excel/CSV ที่กำหนด');
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Download Template Helper
+        function downloadSampleTemplate() {
+            const templateData = [
+                { "จังหวัด": "กรุงเทพมหานคร", "Latitude": 13.7563, "Longitude": 100.5018, "Cases": 28450, "NewCases": 215, "Active": 2450, "Recovered": 25600, "Deaths": 400, "Critical": 180, "Population": 5600000 },
+                { "จังหวัด": "เลย", "Latitude": 17.4860, "Longitude": 101.7223, "Cases": 3100, "NewCases": 19, "Active": 230, "Recovered": 2830, "Deaths": 40, "Critical": 12, "Population": 640000 }
+            ];
+
+            const ws = XLSX.utils.json_to_sheet(templateData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "SurveillanceTemplate");
+            XLSX.writeFile(wb, "covid_surveillance_esri_template.xlsx");
+        }
+
+        // CSV Export Functionality
+        function exportTableToCSV() {
+            let csv = '\uFEFF';
+            csv += 'จังหวัด/พื้นที่,ผู้ติดเชื้อสะสม,รายใหม่วันนี้,กำลังรักษา,หายแล้ว,เสียชีวิต,เคสวิกฤต,IncidencePer100k\n';
+
+            rawData.forEach(item => {
+                const incidence = ((item.cases / item.pop) * 100000).toFixed(1);
+                csv += `"${item.name}",${item.cases},${item.newCases},${item.active},${item.recovered},${item.deaths},${item.critical},${incidence}\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `covid_surveillance_report_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Notification Toast UI Helper
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMessage').innerText = message;
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        // ==========================================
+        // 6. THEME SWITCHER & WINDOW LOAD
+        // ==========================================
+        const themeToggleBtn = document.getElementById('themeToggleBtn');
+        themeToggleBtn.addEventListener('click', () => {
+            const html = document.documentElement;
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+            } else {
+                html.classList.add('dark');
+            }
+        });
+
+        document.getElementById('toggleRealtimeBtn').addEventListener('click', toggleRealtime);
+
+        window.onload = function() {
+            initMap();
+            initCharts();
+            updateDashboardMetrics();
+            startRealtimeSimulation();
+        };
+    </script>
+</body>
+</html>
